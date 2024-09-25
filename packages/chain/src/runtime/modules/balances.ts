@@ -1,7 +1,7 @@
 import { runtimeModule, state, runtimeMethod } from "@proto-kit/module";
 import { State, assert } from "@proto-kit/protocol";
-import { Balance, Balances as BaseBalances, TokenId } from "@proto-kit/library";
-import { PublicKey } from "o1js";
+import { Balance, Balances as BaseBalances, TokenId, UInt64} from "@proto-kit/library";
+import { Provable, PublicKey } from "o1js";
 
 interface BalancesConfig {
   totalSupply: Balance;
@@ -27,5 +27,38 @@ export class Balances extends BaseBalances<BalancesConfig> {
     );
     await this.circulatingSupply.set(newCirculatingSupply);
     await this.mint(tokenId, address, amount);
+  }
+
+  @runtimeMethod()
+  public async updateBalance(
+    tokenId: TokenId,
+    address: PublicKey,
+    addressPool: PublicKey,
+    amount: Balance
+  ): Promise<void> {
+    assert(amount.greaterThan(Balance.zero), "Amount must be greater than zero");
+
+    const currBalance = await this.getBalance(tokenId, address);
+    const condition = amount.greaterThan(currBalance);
+    const diff = Provable.if(
+      condition,
+      Balance,
+      amount.sub(currBalance),
+      currBalance.sub(amount)
+    );
+    const to = Provable.if(
+      condition,
+      PublicKey,
+      address,
+      addressPool
+    );
+    const from = Provable.if(
+      condition,
+      PublicKey,
+      addressPool,
+      address
+    );
+    const d = UInt64.Unsafe.fromField(diff.value);
+    await this.transfer(tokenId, from, to, d);
   }
 }
